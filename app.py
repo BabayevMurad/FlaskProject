@@ -59,19 +59,7 @@ class Orders(Base):
 
 Base.metadata.create_all(bind=engine)
 
-class CategoryCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-
-class CategoryOut(BaseModel):
-    id: int
-    name: str
-    products: List[Product]
-
-class ProductCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    price: int
-    category_id: int
-
+# Pydantic
 
 class ProductOut(BaseModel):
     id: int
@@ -80,6 +68,25 @@ class ProductOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class CategoryOut(BaseModel):
+    id: int
+    name: str
+    products: List[ProductOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ProductCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    price: int
+    category_id: int
 
 
 class ClientCreate(BaseModel):
@@ -101,6 +108,7 @@ class OrderCreate(BaseModel):
     client_id: int
     product_ids: List[int]
 
+
 class OrderOut(BaseModel):
     id: int
     client: ClientOut
@@ -110,9 +118,10 @@ class OrderOut(BaseModel):
         from_attributes = True
 
 
-# FASTAPI APP
+# FastApi App
 
-app = FastAPI()
+app = FastAPI(title='FastApi Ecommerce')
+
 
 def get_db():
     db = SessionLocal()
@@ -122,15 +131,49 @@ def get_db():
         db.close()
 
 
+#Caregory
 
+@app.get("/api/categories/", response_model=List[CategoryOut])
+def get_categories(db: Session = Depends(get_db)):
+    return db.query(Categories).all()
 
-@app.post("/api/categories/", response_model=CategoryCreate, status_code=201)
+@app.get("/api/categories/{category_id}", response_model=CategoryOut)
+def get_category_by_id(category_id: int, db: Session = Depends(get_db)):
+    db_category = db.query(Categories).filter(Categories.id == category_id).first()
+    if not db_category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return db_category
+
+@app.post("/api/categories/", response_model=CategoryOut, status_code=201)
 def create_category(category: CategoryCreate, db: Session = Depends(get_db)):
     db_category = Categories(name=category.name)
     db.add(db_category)
     db.commit()
     db.refresh(db_category)
     return db_category
+
+@app.delete("/api/categories/{category_id}", status_code=204)
+def delete_category(category_id: int, db: Session = Depends(get_db)):
+    db_category = db.query(Categories).filter_by(id=category_id).first()
+    db.delete(db_category)
+    db.commit()
+    db.refresh(db_category)
+    return None
+
+
+#Product
+
+@app.get("/api/products/", response_model=List[ProductOut])
+def get_products(db: Session = Depends(get_db)):
+    return db.query(Product).all()
+
+
+@app.get("/api/products/{product_id}", response_model=ProductOut)
+def get_products(product_id: int, db: Session = Depends(get_db)):
+    db_product=db.query(Product).filter_by(id=product_id).first()
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return db_product
 
 
 @app.post("/api/products/", response_model=ProductOut, status_code=201)
@@ -145,6 +188,36 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     return db_product
 
 
+@app.delete("/api/products/{product_id}", response_model=ProductOut)
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(product)
+    db.commit()
+    return product
+
+
+#Client
+
+@app.get("/api/clients/", response_model=List[ClientOut])
+def get_clients(db: Session = Depends(get_db)):
+    return db.query(Client).all()
+
+
+@app.get("/api/clients/{client_id}", response_model=ClientOut)
+def get_client_by_id(client_id: int, db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id).first()
+    if not db_client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return db_client
+
+@app.get("/api/clients/{client_id}/orders", response_model=List[OrderOut])
+def get_client_orders(client_id: int, db: Session = Depends(get_db)):
+    db_orders = db.query(Orders).filter(Orders.client_id == client_id).all()
+    if not db_orders:
+        raise HTTPException(status_code=404, detail="No orders found for this client")
+    return db_orders
 
 @app.post("/api/clients/", response_model=ClientOut, status_code=201)
 def create_client(client: ClientCreate, db: Session = Depends(get_db)):
@@ -154,6 +227,30 @@ def create_client(client: ClientCreate, db: Session = Depends(get_db)):
     db.refresh(db_client)
     return db_client
 
+
+@app.delete("/api/clients/{client_id}", response_model=ClientOut)
+def delete_client(client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    db.delete(client)
+    db.commit()
+    return client
+
+
+#Order
+
+@app.get("/api/orders/", response_model=List[OrderOut])
+def get_orders(db: Session = Depends(get_db)):
+    return db.query(Orders).all()
+
+
+@app.get("/api/orders/{order_id}", response_model=OrderOut)
+def get_order(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(Orders).filter(Orders.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
 
 @app.post("/api/orders/", response_model=OrderOut, status_code=201)
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
@@ -171,99 +268,11 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.refresh(db_order)
     return db_order
 
-
-@app.get("/api/categories/", response_model=dict, status_code=200)
-def get_categories(db: Session = Depends(get_db)):
-    db_categories = db.query(Categories).all()
-    return db_categories
-
-@app.get("/api/categories/{category_id}", response_model=dict, status_code=200)
-def get_categories_by_id(category_id: int, db: Session = Depends(get_db)):
-    db_category = db.query(Categories).filter(Categories.id == category_id).first()
-    if not db_category:
-        raise HTTPException(status_code=404, detail="Category not found")
-    return db_category
-
-@app.get("/api/products/", response_model=dict, status_code=200)
-def get_products(db: Session = Depends(get_db)):
-    db_products = db.query(Product).all()
-    return db_products
-
-@app.get("/api/products/{product_id}", response_model=dict, status_code=200)
-def get_products_by_id(product_id: int, db: Session = Depends(get_db)):
-    db_product = db.query(Product).filter(Product.id == product_id).first()
-    if not db_product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return db_product
-
-@app.get("/api/clients/", response_model=dict, status_code=200)
-def get_clients(db: Session = Depends(get_db)):
-    db_clients = db.query(Client).all()
-    return db_clients
-
-@app.get("/api/clients/{client_id}", response_model=dict, status_code=200)
-def get_clients_by_id(client_id: int, db: Session = Depends(get_db)):
-    db_client = db.query(Client).filter(Client.id == client_id).first()
-    if not db_client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    return db_client
-
-@app.get('api/clients/{client_id}/orders', response_model=dict, status_code=200)
-def get_clients_by_id(client_id: int, db: Session = Depends(get_db)):
-    db_orders = db.query(Orders).filter(Orders.client_id == client_id).all()
-    if not db_orders:
-        raise HTTPException(status_code=404, detail="Client not found")
-    return db_orders
-
-
-@app.get("/api/orders/", response_model=dict, status_code=200)
-def get_orders(db: Session = Depends(get_db)):
-    db_orders = db.query(Orders).all()
-    return db_orders
-
-@app.get("/api/orders/{order_id}", response_model=OrderOut, status_code=200)
-def get_order(order_id: int, db: Session = Depends(get_db)):
-    order = db.query(Orders).filter(Orders.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    return order
-
-@app.delete("/api/orders/{order_id}", response_model=OrderOut, status_code=204)
+@app.delete("/api/orders/{order_id}", response_model=OrderOut)
 def delete_order(order_id: int, db: Session = Depends(get_db)):
     order = db.query(Orders).filter(Orders.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     db.delete(order)
     db.commit()
-    db.refresh(order)
-    return order
-
-@app.delete("/api/products/{product_id}", response_model=ProductOut, status_code=204)
-def delete_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    db.delete(product)
-    db.commit()
-    db.refresh(product)
-    return product
-
-@app.delete("/api/clients/{client_id}", response_model=ClientOut, status_code=204)
-def delete_client(client_id: int, db: Session = Depends(get_db)):
-    client = db.query(Client).filter(Client.id == client_id).first()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    db.delete(client)
-    db.commit()
-    db.refresh(client)
-    return client
-
-@app.delete("/api/orders/{order_id}", response_model=ProductOut, status_code=204)
-def delete_order(order_id: int, db: Session = Depends(get_db)):
-    order = db.query(Orders).filter(Orders.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    db.delete(order)
-    db.commit()
-    db.refresh(order)
     return order
